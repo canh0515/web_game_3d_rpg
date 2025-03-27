@@ -22,7 +22,8 @@ app.use(compression());
 app.use(express.json());
 
 // Serve static files từ root của project
-const gamePath = path.join(__dirname);
+const gamePath = __dirname;
+
 app.use(
   express.static(gamePath, {
     etag: true,
@@ -33,6 +34,12 @@ app.use(
       }
       if (filePath.endsWith(".wasm")) {
         res.setHeader("Content-Type", "application/wasm");
+      }
+      if (filePath.endsWith(".glb") || filePath.endsWith(".gltf")) {
+        res.setHeader("Content-Type", "model/gltf-binary");
+      }
+      if (filePath.endsWith(".jpg") || filePath.endsWith(".png")) {
+        res.setHeader("Cache-Control", "public, max-age=86400");
       }
     },
   })
