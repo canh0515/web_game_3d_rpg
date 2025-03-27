@@ -1,63 +1,9 @@
+// public/script.js
+const socket = io();
+
 let scene, camera, renderer, player;
-let monsters = [];
-let attackCooldown = 0;
-const PLAYER_SPEED = 0.3;
-const ATTACK_RANGE = 5;
-const ATTACK_ANGLE = Math.PI / 3;
-const keys = {};
-
-class Monster {
-  constructor(type, position, radius) {
-    this.type = type;
-    this.radius = radius;
-    this.home = position.clone();
-    this.health = 100;
-    this.mesh = this.createMesh(type);
-    this.mesh.position.copy(position);
-    this.target = null;
-  }
-
-  createMesh(type) {
-    const geometry = new THREE.ConeGeometry(2, 4, 8);
-    const material = new THREE.MeshPhongMaterial({
-      color: type === "aggressive" ? 0xff0000 : 0x00ff00,
-      shininess: 100,
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.rotation.x = Math.PI / 2;
-    mesh.castShadow = true;
-    return mesh;
-  }
-
-  update(delta) {
-    if (this.health <= 0) return;
-
-    const distanceToPlayer = this.mesh.position.distanceTo(player.position);
-
-    if (this.type === "aggressive" && distanceToPlayer < 15) {
-      this.target = player.position.clone();
-    } else {
-      this.target = null;
-    }
-
-    if (this.target) {
-      const direction = this.target.sub(this.mesh.position).normalize();
-      this.mesh.position.add(direction.multiplyScalar(0.1));
-    } else {
-      const angle = Math.random() * Math.PI * 2;
-      this.mesh.position.x += Math.cos(angle) * 0.05;
-      this.mesh.position.z += Math.sin(angle) * 0.05;
-    }
-
-    if (this.mesh.position.distanceTo(this.home) > this.radius) {
-      const returnDir = this.home.clone().sub(this.mesh.position).normalize();
-      this.mesh.position.add(returnDir.multiplyScalar(0.2));
-    }
-
-    // Giữ quái vật trên mặt đất
-    this.mesh.position.y = 0;
-  }
-}
+let monsters = {};
+let playerMeshes = {}; // Store all player meshes
 
 function init() {
   scene = new THREE.Scene();
@@ -82,15 +28,6 @@ function init() {
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  // Player
-
-  const playerGeometry = new THREE.CylinderGeometry(1, 1, 2, 8);
-  const playerMaterial = new THREE.MeshPhongMaterial({ color: 0x4169e1 });
-  player = new THREE.Mesh(playerGeometry, playerMaterial);
-  player.position.set(0, 1, 0); // Điều chỉnh vị trí
-  player.castShadow = true;
-  scene.add(player);
-
   // Camera
   camera = new THREE.PerspectiveCamera(
     75,
@@ -98,6 +35,8 @@ function init() {
     0.1,
     1000
   );
+  camera.position.set(0, 20, 30);
+  camera.lookAt(0, 0, 0);
 
   // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -105,113 +44,102 @@ function init() {
   renderer.shadowMap.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  // Tạo quái vật
-  createMonsters();
-
-  // Controls
-  document.addEventListener("keydown", (e) => {
-    keys[e.key] = true;
-    if (e.code === "Space") performAttack();
-  });
-
-  document.addEventListener("keyup", (e) => {
-    keys[e.key] = false;
-  });
-
   // Xử lý resize window
   window.addEventListener("resize", onWindowResize, false);
 }
 
-function createMonsters() {
-  // Quái vật bị động
-  for (let i = 0; i < 5; i++) {
-    const pos = new THREE.Vector3(
-      Math.random() * 50 - 25,
-      0,
-      Math.random() * 50 - 25
-    );
-    const monster = new Monster("passive", pos, 10);
-    scene.add(monster.mesh);
-    monsters.push(monster);
-  }
-
-  // Quái vật chủ động
-  for (let i = 0; i < 3; i++) {
-    const pos = new THREE.Vector3(
-      Math.random() * 50 - 25,
-      0,
-      Math.random() * 50 - 25
-    );
-    const monster = new Monster("aggressive", pos, 15);
-    scene.add(monster.mesh);
-    monsters.push(monster);
-  }
+function createPlayerMesh() {
+  const playerGeometry = new THREE.CylinderGeometry(1, 1, 2, 8);
+  const playerMaterial = new THREE.MeshPhongMaterial({ color: 0x4169e1 });
+  const playerMesh = new THREE.Mesh(playerGeometry, playerMaterial);
+  playerMesh.castShadow = true;
+  return playerMesh;
 }
 
-function performAttack() {
-  if (attackCooldown > 0) return;
-  attackCooldown = 0.5;
-
-  // Tạo vector hướng nhìn
-  const forwardVector = new THREE.Vector3(0, 0, -1).applyAxisAngle(
-    new THREE.Vector3(0, 1, 0),
-    player.rotation.y
-  );
-
-  // Hiệu ứng tấn công
-  const attackGeometry = new THREE.ConeGeometry(ATTACK_RANGE, 2, 8);
-  const attackMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffd700,
-    transparent: true,
-    opacity: 0.5,
+function createMonsterMesh(monster) {
+  const geometry = new THREE.ConeGeometry(2, 4, 8);
+  const material = new THREE.MeshPhongMaterial({
+    color: monster.type === "aggressive" ? 0xff0000 : 0x00ff00,
+    shininess: 100,
   });
-  const attackMesh = new THREE.Mesh(attackGeometry, attackMaterial);
-  attackMesh.rotation.x = -Math.PI / 2;
-  attackMesh.position.copy(player.position);
-  attackMesh.rotation.y = player.rotation.y;
-  scene.add(attackMesh);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = Math.PI / 2;
+  mesh.castShadow = true;
+  return mesh;
+}
 
-  // Kiểm tra trúng quái vật
-  monsters.forEach((monster) => {
-    if (monster.health <= 0) return;
+socket.on("updateGameState", (gameState) => {
+  // Cập nhật vị trí người chơi
+  for (const playerId in gameState.players) {
+    const player = gameState.players[playerId];
+    if (!playerMeshes[playerId]) {
+      playerMeshes[playerId] = createPlayerMesh();
+      scene.add(playerMeshes[playerId]);
+    }
+    playerMeshes[playerId].position.set(
+      player.position.x,
+      player.position.y,
+      player.position.z
+    );
+    playerMeshes[playerId].rotation.y = player.rotation.y;
+    if (playerId === socket.id) {
+      document.getElementById("health").textContent = player.health;
+      document.getElementById("score").textContent = player.score;
+      player = playerMeshes[playerId];
+    }
+  }
+  // Remove disconnected players
+  for (const playerId in playerMeshes) {
+    if (!gameState.players[playerId]) {
+      scene.remove(playerMeshes[playerId]);
+      delete playerMeshes[playerId];
+    }
+  }
 
-    const direction = monster.mesh.position.clone().sub(player.position);
-    const angle = direction.angleTo(forwardVector);
-
-    if (
-      direction.length() < ATTACK_RANGE &&
-      Math.abs(angle) < ATTACK_ANGLE / 2
-    ) {
-      monster.health -= 30;
-      if (monster.health <= 0) {
-        monster.mesh.position.y = -10;
-        document.getElementById("score").textContent =
-          parseInt(document.getElementById("score").textContent) + 100;
-      }
+  // Cập nhật vị trí quái vật
+  gameState.monsters.forEach((monster) => {
+    if (!monsters[monster.id]) {
+      monsters[monster.id] = createMonsterMesh(monster);
+      scene.add(monsters[monster.id]);
+    }
+    monsters[monster.id].position.set(
+      monster.position.x,
+      monster.position.y,
+      monster.position.z
+    );
+    if (monster.health <= 0) {
+      monsters[monster.id].position.y = -10;
     }
   });
+});
 
-  setTimeout(() => scene.remove(attackMesh), 200);
+document.addEventListener("keydown", (event) => {
+  let direction;
+  if (event.key === "w" || event.key === "ArrowUp") direction = "up";
+  else if (event.key === "s" || event.key === "ArrowDown") direction = "down";
+  else if (event.key === "a" || event.key === "ArrowLeft") direction = "left";
+  else if (event.key === "d" || event.key === "ArrowRight") direction = "right";
+
+  if (direction) {
+    socket.emit("playerMovement", { direction: direction });
+  }
+  if (event.code === "Space") {
+    socket.emit("performAttack");
+  }
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (player) {
+    updateCamera();
+  }
+  renderer.render(scene, camera);
 }
 
-function updatePlayer(delta) {
-  // Di chuyển player
-  const speed = PLAYER_SPEED * delta * 60;
-
-  if (keys["w"] || keys["ArrowUp"]) {
-    player.position.z -= speed * Math.cos(player.rotation.y);
-    player.position.x -= speed * Math.sin(player.rotation.y);
-  }
-  if (keys["s"] || keys["ArrowDown"]) {
-    player.position.z += speed * Math.cos(player.rotation.y);
-    player.position.x += speed * Math.sin(player.rotation.y);
-  }
-  if (keys["a"] || keys["ArrowLeft"]) {
-    player.rotation.y += 0.05;
-  }
-  if (keys["d"] || keys["ArrowRight"]) {
-    player.rotation.y -= 0.05;
-  }
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function updateCamera() {
@@ -222,31 +150,6 @@ function updateCamera() {
 
   camera.position.copy(player.position).add(cameraOffset);
   camera.lookAt(player.position);
-}
-
-function animate() {
-  requestAnimationFrame(animate);
-  const delta = 0.016;
-
-  // Cập nhật cooldown
-  if (attackCooldown > 0) attackCooldown -= delta;
-
-  // Di chuyển player
-  updatePlayer(delta);
-
-  // Cập nhật quái vật
-  monsters.forEach((monster) => monster.update(delta));
-
-  // Cập nhật camera
-  updateCamera();
-
-  renderer.render(scene, camera);
-}
-
-function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 init();
