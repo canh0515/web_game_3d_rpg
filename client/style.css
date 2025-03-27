@@ -1,11 +1,15 @@
-body { margin: 0; }
-        canvas { display: block; }
-        #hud {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-family: Arial;
-            font-size: 20px;
-            text-shadow: 2px 2px 2px black;
-        }
+body {
+  margin: 0;
+}
+canvas {
+  display: block;
+}
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  color: white;
+  font-family: Arial;
+  font-size: 20px;
+  text-shadow: 2px 2px 2px black;
+}
